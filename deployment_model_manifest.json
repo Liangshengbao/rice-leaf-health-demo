@@ -1,0 +1,38 @@
+{
+  "prototype_type": "research demonstration only",
+  "selection_rule": "highest fixed adaptation-validation Macro-F1 among ECA-MobileNetV3 30% runs",
+  "test_set_used_for_selection": false,
+  "architecture": "ECA-MobileNetV3-Large",
+  "adaptation_ratio_percent": 30,
+  "seed": 123,
+  "best_epoch": 29,
+  "best_validation_macro_f1": 0.7089791532344724,
+  "class_order": [
+    "bacterial_leaf_blight",
+    "blast",
+    "brown_spot",
+    "hispa",
+    "normal"
+  ],
+  "image_size": [
+    224,
+    224
+  ],
+  "normalisation": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "source_checkpoint": "/content/drive/MyDrive/rice_project_outputs/FINAL_RQ3_adaptation_2arch_3ratios_3seeds/V02_ECA/adapt_30/seed_123/best_adapted_model.pth",
+  "deployment_checkpoint": "model.pth",
+  "checkpoint_sha256": "8c3d37820fb7c4a1b1b95f3cc63ff76daddfd10cf1e0039e0c290cb764d0ec37",
+  "source_checkpoint_sha256": "f6dc4b8a23f3990b40a854a0b2974afce9c6ca3f991a694e498652b47992130d",
+  "deployment_format": "inference-only state dictionary for Streamlit"
+}
