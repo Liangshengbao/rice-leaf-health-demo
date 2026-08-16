@@ -7,7 +7,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageOps
 import streamlit as st
 import torch
 import torch.nn as nn
@@ -207,7 +207,9 @@ def make_overlay(original, cam):
 
 
 def predict_leaf(image):
-    image = image.convert("RGB")
+    # Match the orientation used by the Colab/Gradio pipeline. Phone and camera
+    # JPEGs commonly store rotation in EXIF instead of rotating the pixel array.
+    image = ImageOps.exif_transpose(image).convert("RGB")
     x = EVAL_TRANSFORM(image).unsqueeze(0)
     with torch.inference_mode():
         probabilities = torch.softmax(MODEL(x), dim=1)[0].cpu().numpy()
@@ -246,7 +248,7 @@ if uploaded is None:
 else:
     image_bytes = uploaded.getvalue()
     upload_id = hashlib.sha256(image_bytes).hexdigest()
-    image = Image.open(uploaded).convert("RGB")
+    image = ImageOps.exif_transpose(Image.open(uploaded)).convert("RGB")
     if st.session_state.get("upload_id") != upload_id:
         st.session_state.pop("prediction_result", None)
         st.session_state["upload_id"] = upload_id
