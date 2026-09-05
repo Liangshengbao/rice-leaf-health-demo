@@ -1,6 +1,6 @@
 {
-  "prototype_type": "research demonstration only",
-  "selection_rule": "highest fixed adaptation-validation Macro-F1 among ECA-MobileNetV3 30% runs",
+  "prototype_type": "research prototype",
+  "selection_rule": "highest fixed adaptation-validation Macro-F1 across all 18 RQ3 runs; final test excluded from selection",
   "test_set_used_for_selection": false,
   "architecture": "ECA-MobileNetV3-Large",
   "adaptation_ratio_percent": 30,

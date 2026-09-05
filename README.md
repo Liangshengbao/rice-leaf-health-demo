@@ -1,6 +1,5 @@
-# Rice Leaf Health Monitoring — Research Demonstration
+# Rice Leaf Image Classification - Research Prototype
 
-Five-class rice-leaf classification using the validation-selected
-ECA-MobileNetV3-Large checkpoint with 30% target-domain adaptation.
+Validation-selected ECA-MobileNetV3-Large checkpoint with 30% target-domain adaptation (seed 123).
 
-This is a research demonstration, not a certified agricultural diagnostic device.
+Run with: `streamlit run streamlit_app.py`

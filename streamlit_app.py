@@ -14,7 +14,7 @@ import torch.nn as nn
 from torchvision import models, transforms
 
 st.set_page_config(
-    page_title="Rice Leaf Health Research Demo",
+    page_title="Rice Leaf Image Classification Research Prototype",
     page_icon="🌾",
     layout="wide",
 )
@@ -71,25 +71,6 @@ def build_sequential_eca(num_classes=5):
     return model
 
 
-class SeparateECA16MobileNetV3(nn.Module):
-    def __init__(self, num_classes=5):
-        super().__init__()
-        base = models.mobilenet_v3_large(weights=None)
-        base.classifier[-1] = nn.Linear(base.classifier[-1].in_features, num_classes)
-        self.features = base.features
-        self.avgpool = base.avgpool
-        self.classifier = base.classifier
-        self.eca_16 = ECABlock(960, 3)
-
-    def forward(self, x):
-        for index, layer in enumerate(self.features):
-            x = layer(x)
-            if index == 16:
-                x = self.eca_16(x)
-        x = self.avgpool(x)
-        return self.classifier(torch.flatten(x, 1))
-
-
 def extract_state_dict(checkpoint):
     if isinstance(checkpoint, dict):
         for key in ["model_state_dict", "state_dict", "model", "net", "best_model_state_dict"]:
@@ -114,14 +95,14 @@ def clean_keys(state_dict):
     return cleaned
 
 
-@st.cache_resource(show_spinner="Loading the validated model…")
+@st.cache_resource(show_spinner="Loading the selected model…")
 def load_model():
     observed_sha = sha256(CHECKPOINT_PATH)
     if observed_sha != MANIFEST["checkpoint_sha256"]:
         raise RuntimeError("Model SHA-256 does not match the deployment manifest.")
 
     try:
-        checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=False)
+        checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu", weights_only=True)
     except TypeError:
         checkpoint = torch.load(CHECKPOINT_PATH, map_location="cpu")
 
@@ -130,23 +111,10 @@ def load_model():
         assert list(checkpoint_classes) == CLASS_NAMES
     state_dict = clean_keys(extract_state_dict(checkpoint))
 
-    model = None
-    layout = None
-    for layout_name, builder in (
-        ("features[16]-sequential-ECA", build_sequential_eca),
-        ("explicit-eca_16", SeparateECA16MobileNetV3),
-    ):
-        candidate = builder(num_classes=5)
-        assert sum(p.numel() for p in candidate.parameters()) == 4_208_440
-        try:
-            candidate.load_state_dict(state_dict, strict=True)
-            model = candidate
-            layout = layout_name
-            break
-        except RuntimeError:
-            continue
-    if model is None:
-        raise RuntimeError("Checkpoint did not strictly match an approved final ECA layout.")
+    model = build_sequential_eca(num_classes=5)
+    assert sum(p.numel() for p in model.parameters()) == 4_208_440
+    model.load_state_dict(state_dict, strict=True)
+    layout = "features[16]-sequential-ECA"
     model.eval()
     with torch.inference_mode():
         assert tuple(model(torch.zeros(1, 3, 224, 224)).shape) == (1, 5)
@@ -155,12 +123,20 @@ def load_model():
 
 MODEL, MODEL_LAYOUT, OBSERVED_SHA = load_model()
 
-EVAL_TRANSFORM = transforms.Compose([
-    transforms.Resize((256, 256)),
-    transforms.CenterCrop(224),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-])
+RESIZE = transforms.Resize((256, 256))
+CENTER_CROP = transforms.CenterCrop(224)
+TO_TENSOR = transforms.ToTensor()
+NORMALISE = transforms.Normalize(
+    mean=[0.485, 0.456, 0.406],
+    std=[0.229, 0.224, 0.225],
+)
+
+
+def prepare_image(image):
+    image = ImageOps.exif_transpose(image).convert("RGB")
+    model_view = CENTER_CROP(RESIZE(image))
+    input_tensor = NORMALISE(TO_TENSOR(model_view)).unsqueeze(0)
+    return image, model_view, input_tensor
 
 
 def find_last_conv2d(module):
@@ -207,15 +183,12 @@ def make_overlay(original, cam):
 
 
 def predict_leaf(image):
-    # Match the orientation used by the Colab/Gradio pipeline. Phone and camera
-    # JPEGs commonly store rotation in EXIF instead of rotating the pixel array.
-    image = ImageOps.exif_transpose(image).convert("RGB")
-    x = EVAL_TRANSFORM(image).unsqueeze(0)
+    _original, model_view, x = prepare_image(image)
     with torch.inference_mode():
         probabilities = torch.softmax(MODEL(x), dim=1)[0].cpu().numpy()
     predicted_index = int(np.argmax(probabilities))
-    overlay = make_overlay(image, gradcam_for_class(x, predicted_index))
-    return probabilities, predicted_index, overlay
+    overlay = make_overlay(model_view, gradcam_for_class(x, predicted_index))
+    return probabilities, predicted_index, model_view, overlay
 
 
 st.markdown("""
@@ -227,16 +200,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🌾 Rice Leaf Health Monitoring — Research Demonstration")
+st.title("🌾 Rice Leaf Image Classification — Research Prototype")
 st.markdown(
     f"**Model:** ECA-MobileNetV3-Large · **Target:** five rice-leaf classes · "
     f"**Selected run:** seed {MANIFEST['seed']}, 30% target adaptation"
 )
 st.markdown(
-    '<div class="notice"><b>Research use only.</b> This prototype is not a certified '
-    'agricultural diagnostic device. Predictions should be verified by a qualified '
-    'agronomist and must not be used alone for treatment decisions.</div>',
+    '<div class="notice"><b>Research prototype.</b> Field performance and probability '
+    'calibration were not evaluated.</div>',
     unsafe_allow_html=True,
+)
+
+st.caption(
+    "Use one clear rice-leaf image. Avoid collages, screenshots, and images dominated "
+    "by unrelated background objects."
 )
 
 uploaded = st.file_uploader(
@@ -244,11 +221,15 @@ uploaded = st.file_uploader(
 )
 
 if uploaded is None:
-    st.info("Upload a rice-leaf image to run the validated five-class model.")
+    st.info("Upload a rice-leaf image to run the selected five-class model.")
 else:
     image_bytes = uploaded.getvalue()
     upload_id = hashlib.sha256(image_bytes).hexdigest()
-    image = ImageOps.exif_transpose(Image.open(uploaded)).convert("RGB")
+    try:
+        image = ImageOps.exif_transpose(Image.open(uploaded)).convert("RGB")
+    except Exception:
+        st.error("The uploaded file could not be read as an image. Please choose another file.")
+        st.stop()
     if st.session_state.get("upload_id") != upload_id:
         st.session_state.pop("prediction_result", None)
         st.session_state["upload_id"] = upload_id
@@ -267,17 +248,20 @@ else:
         if result is None:
             st.info("Select **Analyse image** to view the prediction.")
         else:
-            probabilities, predicted_index, _overlay = result
+            probabilities, predicted_index, _model_view, _overlay = result
             predicted_name = DISPLAY_NAMES[CLASS_NAMES[predicted_index]]
             st.subheader(f"Predicted class: {predicted_name}")
-            st.metric("Model confidence", f"{probabilities[predicted_index] * 100:.2f}%")
+            st.metric(
+                "Top-class softmax probability",
+                f"{probabilities[predicted_index] * 100:.2f}%",
+            )
             order = np.argsort(probabilities)[::-1]
-            for rank, idx in enumerate(order[:3], start=1):
+            for rank, idx in enumerate(order, start=1):
                 st.markdown(
                     f"{rank}. **{DISPLAY_NAMES[CLASS_NAMES[idx]]}** — "
                     f"{probabilities[idx] * 100:.2f}%"
                 )
-            st.caption("Confidence is a model probability, not diagnostic certainty.")
+            st.caption("The displayed probabilities have not been calibrated.")
 
             chart_df = pd.DataFrame({
                 "Class": [DISPLAY_NAMES[name] for name in CLASS_NAMES],
@@ -295,15 +279,27 @@ else:
             plt.close(fig)
 
     if result is not None:
-        st.subheader("Grad-CAM attention overlay")
-        st.image(result[2], use_container_width=True)
+        st.subheader("Model input and Grad-CAM")
+        crop_col, cam_col = st.columns(2)
+        with crop_col:
+            st.image(
+                result[2],
+                caption="Model input after resize and centre crop (224 × 224)",
+                use_container_width=True,
+            )
+        with cam_col:
+            st.image(
+                result[3],
+                caption="Grad-CAM attention overlay on the model input",
+                use_container_width=True,
+            )
         st.caption(
             "Warm colours indicate image regions that contributed more strongly to the "
             "selected class. The map is an explanatory aid, not a lesion boundary."
         )
 
 with st.sidebar:
-    st.header("Deployment audit")
+    st.header("Model information")
     st.write(f"Selection seed: **{MANIFEST['seed']}**")
     st.write(f"Best validation Macro-F1: **{MANIFEST['best_validation_macro_f1']:.6f}**")
     st.write(f"Architecture layout: `{MODEL_LAYOUT}`")
