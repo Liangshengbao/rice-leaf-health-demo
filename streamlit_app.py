@@ -123,8 +123,8 @@ def load_model():
 
 MODEL, MODEL_LAYOUT, OBSERVED_SHA = load_model()
 
-RESIZE = transforms.Resize((256, 256))
-CENTER_CROP = transforms.CenterCrop(224)
+RESIZE = transforms.Resize((224, 224))
+
 TO_TENSOR = transforms.ToTensor()
 NORMALISE = transforms.Normalize(
     mean=[0.485, 0.456, 0.406],
@@ -134,7 +134,7 @@ NORMALISE = transforms.Normalize(
 
 def prepare_image(image):
     image = ImageOps.exif_transpose(image).convert("RGB")
-    model_view = CENTER_CROP(RESIZE(image))
+    model_view = RESIZE(image)
     input_tensor = NORMALISE(TO_TENSOR(model_view)).unsqueeze(0)
     return image, model_view, input_tensor
 
