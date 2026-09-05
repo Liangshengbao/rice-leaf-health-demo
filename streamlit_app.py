@@ -284,7 +284,7 @@ else:
         with crop_col:
             st.image(
                 result[2],
-                caption="Model input after resize and centre crop (224 × 224)",
+                caption="Model input after direct resize (224 × 224)",
                 use_container_width=True,
             )
         with cam_col:
